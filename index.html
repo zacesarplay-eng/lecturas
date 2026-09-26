@@ -1477,7 +1477,7 @@ function makeTileLayer() {
       return img;
     },
   });
-  return new Cached(OSM_URL, { maxZoom: 20, maxNativeZoom: 19, keepBuffer: 2, updateWhenZooming: false, updateWhenIdle: true });
+  return new Cached(OSM_URL, { maxZoom: 22, maxNativeZoom: 19, keepBuffer: 2, updateWhenZooming: false, updateWhenIdle: true });
 }
 
 function sizeRotator() {
@@ -1508,7 +1508,7 @@ function groupColor(g) {
 
 function ensureMap() {
   if (map || typeof L === 'undefined') return;
-  map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, renderer: L.canvas({ padding: 0.3 }), zoomSnap: 0.5, maxZoom: 20 });
+  map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, renderer: L.canvas({ padding: 0.3 }), zoomSnap: 0.5, maxZoom: 22 });
   makeTileLayer().addTo(map);
   labelLayer = L.layerGroup().addTo(map);
   map.on('zoomend moveend', () => scheduleLabels());
@@ -1577,8 +1577,13 @@ function onMapTap(e) {
   for (const G of groupsList) { const d = map.latLngToContainerPoint(G.ll).distanceTo(pt); if (d <= TOL) cands.push({ G, d }); }
   if (!cands.length) return;
   cands.sort((a, b) => a.d - b.d);
-  if (cands.length > 1 && map.getZoom() < 18 && cands[1].d - cands[0].d < 10) {
-    map.setView(map.containerPointToLatLng(pt), Math.min(map.getZoom() + 2, 19));   // varios juntos: acercar para elegir
+  const underFinger = cands.filter(c => c.d <= 16);
+  if (underFinger.length > 1) {
+    if (map.getZoom() < 19) {                          // de lejos: acercar para separarlos
+      map.setView(map.containerPointToLatLng(pt), Math.min(map.getZoom() + 2, 21));
+    } else {                                           // de cerca y siguen encimados: lista para elegir
+      openGroup([...new Set(cands.flatMap(c => c.G.g))].sort((a, b) => a - b), 'near');
+    }
     return;
   }
   const G = cands[0].G;
@@ -1798,14 +1803,15 @@ function searchRoute(raw) {
 /* =========================================================
    Varios medidores en el mismo punto
    ========================================================= */
-let openGroupList = null;
-function openGroup(g) {
+let openGroupList = null, openGroupKind = 'same';
+function openGroup(g, kind) {
   closeSheets(true);
   openGroupList = g;
+  openGroupKind = kind || 'same';
   const pend = g.filter(p => !entryOf(R[p])).sort((a, b) => a - b);
   const done = g.filter(p => entryOf(R[p])).sort((a, b) => a - b);
   const first = R[g[0]];
-  $('grTitle').textContent = g.length + ' medidores en este punto';
+  $('grTitle').textContent = g.length + (openGroupKind === 'near' ? ' medidores juntos aquí: elige uno' : ' medidores en este punto');
   $('grWho').textContent = (pend.length ? pend.length + ' pendiente(s). ' : 'Todos registrados. ') + (first.direccion || first.nombre || '');
   $('grList').innerHTML = pend.concat(done).map(p => {
     const m = R[p], e = entryOf(m);
@@ -1893,7 +1899,7 @@ function saveEntry() {
   const nx = nextPos != null ? R[nextPos] : null;
   toast('Guardado: ' + doneCount() + ' de ' + R.length + (nx ? '. Más cercano: parada ' + nx.stop : ''));
   if (from === 'group' && openGroupList && openGroupList.some(p => !entryOf(R[p]))) {
-    openGroup(openGroupList);          // seguir con el mismo edificio
+    openGroup(openGroupList, openGroupKind);   // seguir con los mismos medidores
     renderList();
   } else if (from === 'list') {
     search = null; $('q').value = ''; setSearchHint('');
